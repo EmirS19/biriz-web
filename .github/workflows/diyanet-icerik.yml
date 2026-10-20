@@ -1,0 +1,47 @@
+# Diyanet'in günün ayeti, hadisi ve duası → icerik/<tarih>.json + icerik/bugun.json.
+# Uygulama https://www.birizapp.com.tr/icerik/bugun.json okur; dosya bugünün değilse kendi seçkisini gösterir,
+# yani bir gün kaçarsa kullanıcı bir şey fark etmez, yalnız arşivde o gün eksik kalır.
+#
+# Günde 3 deneme (GitHub zamanlanmış görevi bazen geciktirir/atlar). cek.py o günün dosyası varsa API'ye sormaz.
+# Gizli değerler: depo ayarları > Secrets and variables > Actions > DIYANET_EMAIL, DIYANET_PASSWORD.
+# cek.py'nin asıl kopyası Biriz deposunda (tools/diyanet_api/cek.py); burada değişirse oraya da taşı.
+name: Diyanet günlük içerik
+
+on:
+  schedule:
+    - cron: "30 21 * * *"   # 00:30 TSİ
+    - cron: "30 3 * * *"    # 06:30 TSİ
+    - cron: "30 9 * * *"    # 12:30 TSİ
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: site-yaz
+  cancel-in-progress: false
+
+jobs:
+  icerik:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Bugünün içeriği
+        env:
+          DIYANET_EMAIL: ${{ secrets.DIYANET_EMAIL }}
+          DIYANET_PASSWORD: ${{ secrets.DIYANET_PASSWORD }}
+          CIKTI_DIR: .
+        run: python tools/diyanet_api/cek.py icerik
+      - name: Siteye koy
+        run: |
+          git config user.name "biriz-bot"
+          git config user.email "biriz-bot@users.noreply.github.com"
+          git add icerik
+          if git diff --cached --quiet; then echo "değişiklik yok"; exit 0; fi
+          git commit -m "Diyanet günlük içerik $(TZ=Europe/Istanbul date +%Y-%m-%d)"
+          git pull --rebase
+          git push

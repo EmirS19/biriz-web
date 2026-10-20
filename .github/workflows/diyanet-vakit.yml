@@ -1,0 +1,48 @@
+# Diyanet'in resmi vakitleri → vakit/<yıl>/<ilçeId>.json. Uygulama https://www.birizapp.com.tr/vakit/... okur.
+#
+# Ayda bir: bu yılın EKSİK ilçelerini tamamlar (var olan dosyaya dokunmaz), Aralık'ta gelecek yılı çeker.
+# vakit/yerler.json'a DOKUNMAZ: Diyanet koordinat vermiyor, koordinatlar Wikidata'dan eklendi (Biriz deposu
+# tools/diyanet_api/koordinat.py). İlçe listesi değişirse yerelde `cek.py yerler` + `koordinat.py` çalıştırılır.
+# Kota: DateRange konum başına ayda 10 istek; her ilçe yılda bir kez çekilir.
+# Gizli değerler: DIYANET_EMAIL, DIYANET_PASSWORD (diyanet-icerik.yml ile aynı).
+name: Diyanet vakitleri
+
+on:
+  schedule:
+    - cron: "17 3 1 * *"   # her ayın 1'i 06:17 TSİ
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: site-yaz
+  cancel-in-progress: false
+
+jobs:
+  cek:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Bu yıl (eksikler) ve Aralık'ta gelecek yıl
+        env:
+          DIYANET_EMAIL: ${{ secrets.DIYANET_EMAIL }}
+          DIYANET_PASSWORD: ${{ secrets.DIYANET_PASSWORD }}
+          CIKTI_DIR: .
+        run: |
+          YIL=$(TZ=Europe/Istanbul date +%Y)
+          python tools/diyanet_api/cek.py yil "$YIL"
+          if [ "$(TZ=Europe/Istanbul date +%m)" = "12" ]; then python tools/diyanet_api/cek.py yil "$((YIL + 1))"; fi
+      - name: Siteye koy
+        run: |
+          git config user.name "biriz-bot"
+          git config user.email "biriz-bot@users.noreply.github.com"
+          git add vakit
+          if git diff --cached --quiet; then echo "değişiklik yok"; exit 0; fi
+          git commit -m "Diyanet vakitleri $(TZ=Europe/Istanbul date +%Y-%m-%d)"
+          git pull --rebase
+          git push
